@@ -1,18 +1,20 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StatusBar, Animated } from 'react-native';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StatusBar, Animated, Easing, Dimensions } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval,
   startOfWeek, endOfWeek, isSameDay, isToday, parseISO,
-  addMonths, subMonths, differenceInDays,
+  addMonths, subMonths,
 } from 'date-fns';
 import { getUpcomingEvents } from '../database/db';
 import { useTheme } from '../constants/ThemeContext';
-import { Spacing, Radius, getEventTypeConfig, getUrgencyConfig } from '../constants/theme';
+import { Spacing, Radius, getEventTypeConfig, getUrgencyConfig, getDaysAwayFromDateStr } from '../constants/theme';
 import { ThemeToggle } from '../components/UI';
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const { width: SCREEN_W } = Dimensions.get('window');
+const DAY_SIZE = Math.floor((SCREEN_W - 48) / 7);
 
 export default function CalendarScreen({ navigation }) {
   const { theme } = useTheme();
@@ -20,14 +22,44 @@ export default function CalendarScreen({ navigation }) {
   const [events, setEvents] = useState([]);
   const [selectedDay, setSelectedDay] = useState(new Date());
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const monthSlide = useRef(new Animated.Value(0)).current;
+  const panelSlide = useRef(new Animated.Value(20)).current;
+  const panelOpacity = useRef(new Animated.Value(0)).current;
+  const monthDir = useRef(0); // -1 prev, 1 next
 
   const load = useCallback(async () => {
     const evts = await getUpcomingEvents(90);
     setEvents(evts);
-    Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    Animated.timing(fadeAnim, { toValue: 1, duration: 350, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, []);
 
   useFocusEffect(useCallback(() => { fadeAnim.setValue(0); load(); }, [load]));
+
+  const changeMonth = (direction) => {
+    monthDir.current = direction;
+    Animated.sequence([
+      Animated.timing(monthSlide, { toValue: -direction * 30, duration: 150, useNativeDriver: true, easing: Easing.in(Easing.cubic) }),
+      Animated.timing(monthSlide, { toValue: direction * 30, duration: 0, useNativeDriver: true }),
+      Animated.timing(monthSlide, { toValue: 0, duration: 200, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+    ]).start();
+    setCurrentMonth(prev => direction === 1 ? addMonths(prev, 1) : subMonths(prev, 1));
+  };
+
+  const selectDay = (day) => {
+    setSelectedDay(day);
+    panelOpacity.setValue(0);
+    panelSlide.setValue(12);
+    Animated.parallel([
+      Animated.timing(panelOpacity, { toValue: 1, duration: 250, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+      Animated.timing(panelSlide, { toValue: 0, duration: 250, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+    ]).start();
+  };
+
+  // Initialise panel visible on mount
+  useEffect(() => {
+    panelOpacity.setValue(1);
+    panelSlide.setValue(0);
+  }, []);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -35,10 +67,11 @@ export default function CalendarScreen({ navigation }) {
   const calEnd = endOfWeek(monthEnd);
   const days = eachDayOfInterval({ start: calStart, end: calEnd });
 
-  const getEventsForDay = (day) =>
-    events.filter(e => isSameDay(parseISO(e.date), day));
-
+  const getEventsForDay = (day) => events.filter(e => isSameDay(parseISO(e.date), day));
   const selectedEvents = getEventsForDay(selectedDay);
+
+  // Get today local
+  const todayLocal = new Date();
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -46,7 +79,12 @@ export default function CalendarScreen({ navigation }) {
 
       {/* Header */}
       <View style={{ paddingTop: 52, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, borderBottomWidth: 0.5, borderBottomColor: theme.border, backgroundColor: theme.bg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text }}>Calendar</Text>
+        <View>
+          <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text }}>Calendar</Text>
+          <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 1 }}>
+            {events.length} upcoming event{events.length !== 1 ? 's' : ''}
+          </Text>
+        </View>
         <ThemeToggle />
       </View>
 
@@ -54,29 +92,39 @@ export default function CalendarScreen({ navigation }) {
         <Animated.View style={{ opacity: fadeAnim }}>
 
           {/* Month Navigator */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md }}>
-            <TouchableOpacity onPress={() => setCurrentMonth(subMonths(currentMonth, 1))} style={{ padding: 6, backgroundColor: theme.surface, borderRadius: Radius.md, borderWidth: 0.5, borderColor: theme.border }} activeOpacity={0.7}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.md }}>
+            <TouchableOpacity
+              onPress={() => changeMonth(-1)}
+              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface, borderWidth: 0.5, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+              activeOpacity={0.7}>
               <Ionicons name="chevron-back" size={18} color={theme.textSec} />
             </TouchableOpacity>
-            <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>
-              {format(currentMonth, 'MMMM yyyy')}
-            </Text>
-            <TouchableOpacity onPress={() => setCurrentMonth(addMonths(currentMonth, 1))} style={{ padding: 6, backgroundColor: theme.surface, borderRadius: Radius.md, borderWidth: 0.5, borderColor: theme.border }} activeOpacity={0.7}>
+
+            <Animated.View style={{ transform: [{ translateX: monthSlide }] }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: theme.text, textAlign: 'center' }}>
+                {format(currentMonth, 'MMMM yyyy')}
+              </Text>
+            </Animated.View>
+
+            <TouchableOpacity
+              onPress={() => changeMonth(1)}
+              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.surface, borderWidth: 0.5, borderColor: theme.border, alignItems: 'center', justifyContent: 'center' }}
+              activeOpacity={0.7}>
               <Ionicons name="chevron-forward" size={18} color={theme.textSec} />
             </TouchableOpacity>
           </View>
 
-          {/* Day headers */}
-          <View style={{ flexDirection: 'row', paddingHorizontal: Spacing.lg, marginBottom: 6 }}>
-            {DAYS.map(d => (
-              <Text key={d} style={{ flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '600', color: theme.textMuted }}>
-                {d}
-              </Text>
+          {/* Day labels */}
+          <View style={{ flexDirection: 'row', paddingHorizontal: Spacing.lg, marginBottom: 4 }}>
+            {DAYS.map((d, i) => (
+              <View key={i} style={{ width: DAY_SIZE, alignItems: 'center' }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: theme.textMuted }}>{d}</Text>
+              </View>
             ))}
           </View>
 
-          {/* Calendar grid */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: Spacing.lg }}>
+          {/* Calendar Grid */}
+          <Animated.View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: Spacing.lg, transform: [{ translateX: monthSlide }] }}>
             {days.map(day => {
               const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
               const isSelected = isSameDay(day, selectedDay);
@@ -84,89 +132,124 @@ export default function CalendarScreen({ navigation }) {
               const dayEvents = getEventsForDay(day);
               const hasEvents = dayEvents.length > 0;
 
+              // Get up to 3 unique event colors
+              const dotColors = [...new Set(dayEvents.slice(0, 3).map(e => e.course_color))];
+
               return (
                 <TouchableOpacity
                   key={day.toISOString()}
-                  style={{ width: '14.28%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}
-                  onPress={() => setSelectedDay(day)}
+                  style={{ width: DAY_SIZE, height: DAY_SIZE + 10, alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => selectDay(day)}
                   activeOpacity={0.7}
                 >
                   <View style={[
-                    { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-                    isSelected && { backgroundColor: theme.sky },
+                    { width: DAY_SIZE - 8, height: DAY_SIZE - 8, borderRadius: (DAY_SIZE - 8) / 2, alignItems: 'center', justifyContent: 'center' },
+                    isSelected && { backgroundColor: theme.sky, shadowColor: theme.sky, shadowOpacity: 0.5, shadowRadius: 8, elevation: 6 },
                     isTod && !isSelected && { borderWidth: 1.5, borderColor: theme.sky },
                   ]}>
                     <Text style={{
-                      fontSize: 13, fontWeight: isSelected || isTod ? '700' : '400',
+                      fontSize: 14,
+                      fontWeight: isSelected || isTod ? '700' : isCurrentMonth ? '400' : '300',
                       color: isSelected ? '#fff' : isTod ? theme.sky : isCurrentMonth ? theme.text : theme.textDim,
                     }}>
                       {format(day, 'd')}
                     </Text>
                   </View>
 
-                  {/* Event dots */}
+                  {/* Event indicator dots */}
                   {hasEvents && (
-                    <View style={{ flexDirection: 'row', gap: 2, marginTop: 2 }}>
-                      {dayEvents.slice(0, 3).map((e, i) => (
-                        <View key={i} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: e.course_color }} />
+                    <View style={{ flexDirection: 'row', gap: 2, marginTop: 2, height: 5, alignItems: 'center' }}>
+                      {dotColors.map((c, i) => (
+                        <View key={i} style={{
+                          width: isSelected ? 5 : 4, height: isSelected ? 5 : 4,
+                          borderRadius: 3,
+                          backgroundColor: isSelected ? 'rgba(255,255,255,0.85)' : c,
+                        }} />
                       ))}
                     </View>
                   )}
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </Animated.View>
 
-          {/* Today button */}
+          {/* Today pill */}
           <TouchableOpacity
-            onPress={() => { setCurrentMonth(new Date()); setSelectedDay(new Date()); }}
-            style={{ alignSelf: 'center', marginTop: 8, paddingHorizontal: 16, paddingVertical: 6, backgroundColor: theme.skyBg, borderRadius: Radius.full, borderWidth: 0.5, borderColor: theme.skyBorder }}
+            onPress={() => { setCurrentMonth(new Date()); selectDay(new Date()); }}
+            style={{ alignSelf: 'center', marginTop: 4, marginBottom: 4, paddingHorizontal: 18, paddingVertical: 7, backgroundColor: theme.skyBg, borderRadius: Radius.full, borderWidth: 0.5, borderColor: theme.skyBorder, flexDirection: 'row', alignItems: 'center', gap: 5 }}
             activeOpacity={0.7}>
+            <Ionicons name="locate" size={12} color={theme.skyText} />
             <Text style={{ fontSize: 12, fontWeight: '600', color: theme.skyText }}>Today</Text>
           </TouchableOpacity>
 
-          {/* Selected day events */}
-          <View style={{ padding: Spacing.lg, paddingTop: Spacing.md }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: theme.text, marginBottom: 10 }}>
-              {isToday(selectedDay) ? 'Today' : format(selectedDay, 'EEEE, MMMM d')}
-              {selectedEvents.length > 0 && <Text style={{ color: theme.textMuted, fontWeight: '400' }}> · {selectedEvents.length} event{selectedEvents.length > 1 ? 's' : ''}</Text>}
-            </Text>
+          {/* Divider */}
+          <View style={{ height: 0.5, backgroundColor: theme.border, marginHorizontal: Spacing.lg, marginTop: 8 }} />
+
+          {/* Selected Day Panel */}
+          <Animated.View style={{ padding: Spacing.lg, paddingTop: Spacing.md, opacity: panelOpacity, transform: [{ translateY: panelSlide }] }}>
+            {/* Day header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <View>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text }}>
+                  {isToday(selectedDay) ? '📍 Today' : format(selectedDay, 'EEEE, MMMM d')}
+                </Text>
+                {selectedEvents.length > 0 && (
+                  <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 1 }}>
+                    {selectedEvents.length} event{selectedEvents.length > 1 ? 's' : ''} scheduled
+                  </Text>
+                )}
+              </View>
+              {selectedEvents.length > 0 && (
+                <View style={{ backgroundColor: theme.sky + '20', borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 0.5, borderColor: theme.skyBorder }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: theme.sky }}>{selectedEvents.length}</Text>
+                </View>
+              )}
+            </View>
 
             {selectedEvents.length === 0 ? (
-              <View style={{ backgroundColor: theme.surface, borderRadius: Radius.lg, borderWidth: 0.5, borderColor: theme.border, padding: Spacing.lg, alignItems: 'center' }}>
-                <Text style={{ fontSize: 24, marginBottom: 6 }}>✨</Text>
-                <Text style={{ fontSize: 13, color: theme.textMuted }}>No events this day</Text>
+              <View style={{ backgroundColor: theme.surface, borderRadius: Radius.xl, borderWidth: 0.5, borderColor: theme.border, padding: 24, alignItems: 'center' }}>
+                <Text style={{ fontSize: 28, marginBottom: 8 }}>✨</Text>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text, marginBottom: 4 }}>Free day!</Text>
+                <Text style={{ fontSize: 12, color: theme.textMuted }}>No events scheduled</Text>
               </View>
             ) : (
               selectedEvents.map(event => {
                 const typeConfig = getEventTypeConfig(event.type);
-                const daysAway = differenceInDays(parseISO(event.date), new Date());
+                const daysAway = getDaysAwayFromDateStr(event.date);
                 const urgency = getUrgencyConfig(daysAway);
 
                 return (
                   <TouchableOpacity
                     key={event.id}
-                    activeOpacity={0.75}
+                    activeOpacity={0.8}
                     onPress={() => navigation.navigate('EventDetail', { eventId: event.id })}
-                    style={{ backgroundColor: theme.surface, borderRadius: Radius.lg, borderWidth: 0.5, borderColor: theme.border, overflow: 'hidden', marginBottom: 8 }}>
-                    <View style={{ height: 3, backgroundColor: typeConfig.color }} />
-                    <View style={{ padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                      <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                          <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: event.course_color }} />
-                          <Text style={{ fontSize: 11, color: theme.textSec }}>{event.course_name}</Text>
+                    style={{ backgroundColor: theme.surface, borderRadius: Radius.xl, borderWidth: 0.5, borderColor: theme.border, overflow: 'hidden', marginBottom: 10 }}>
+                    {/* Colored accent top bar */}
+                    <View style={{ height: 4, backgroundColor: typeConfig.color }} />
+                    <View style={{ padding: 14 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                        {/* Type icon badge */}
+                        <View style={{ width: 40, height: 40, borderRadius: Radius.md, backgroundColor: typeConfig.color + '20', alignItems: 'center', justifyContent: 'center', borderWidth: 0.5, borderColor: typeConfig.color + '40' }}>
+                          <Text style={{ fontSize: 18 }}>
+                            {typeConfig.key === 'quiz' ? '🎯' : typeConfig.key === 'assignment' ? '📝' : typeConfig.key === 'midterm' ? '📋' : typeConfig.key === 'final' ? '🏆' : typeConfig.key === 'lab' ? '🔬' : typeConfig.key === 'presentation' ? '🎤' : '📌'}
+                          </Text>
                         </View>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{event.title}</Text>
-                        <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
-                          {event.time || 'No time'}{event.venue && ` · ${event.venue}`}
-                        </Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                        <View style={{ backgroundColor: typeConfig.color + '20', borderRadius: Radius.full, paddingHorizontal: 7, paddingVertical: 2 }}>
-                          <Text style={{ fontSize: 9, fontWeight: '700', color: typeConfig.color }}>{typeConfig.label.toUpperCase()}</Text>
+                        <View style={{ flex: 1 }}>
+                          {/* Course + type */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                            <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: event.course_color }} />
+                            <Text style={{ fontSize: 11, color: theme.textSec }}>{event.course_name}</Text>
+                            <View style={{ backgroundColor: typeConfig.color + '20', borderRadius: Radius.full, paddingHorizontal: 6, paddingVertical: 1 }}>
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: typeConfig.color }}>{typeConfig.label.toUpperCase()}</Text>
+                            </View>
+                          </View>
+                          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{event.title}</Text>
+                          <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
+                            {event.time || 'No time'}{event.venue && ` · ${event.venue}`}
+                          </Text>
                         </View>
-                        <View style={{ backgroundColor: urgency.bg, borderRadius: Radius.full, paddingHorizontal: 7, paddingVertical: 2 }}>
-                          <Text style={{ fontSize: 9, fontWeight: '600', color: urgency.color }}>{urgency.text}</Text>
+                        <View style={{ backgroundColor: urgency.bg, borderRadius: Radius.full, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: urgency.color }}>{urgency.text}</Text>
                         </View>
                       </View>
                     </View>
@@ -174,7 +257,10 @@ export default function CalendarScreen({ navigation }) {
                 );
               })
             )}
-          </View>
+          </Animated.View>
+
+          {/* Bottom spacer */}
+          <View style={{ height: 24 }} />
         </Animated.View>
       </ScrollView>
     </View>

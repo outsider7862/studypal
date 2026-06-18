@@ -105,6 +105,18 @@ export function getEventTypeConfig(key) {
   return EVENT_TYPES.find(t => t.key === key) || EVENT_TYPES[EVENT_TYPES.length - 1];
 }
 
+// Compare a yyyy-MM-dd string against today in local time — avoids UTC/local timezone drift
+export function getDaysAwayFromDateStr(dateStr) {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const [ty, tm, td] = todayStr.split('-').map(Number);
+  const [ey, em, ed] = dateStr.split('-').map(Number);
+  // Compute difference in calendar days (local, no time involved)
+  const todayMs = Date.UTC(ty, tm - 1, td);
+  const eventMs = Date.UTC(ey, em - 1, ed);
+  return Math.round((eventMs - todayMs) / 86400000);
+}
+
 export function getUrgencyConfig(daysAway) {
   if (daysAway < 0) return { color: Colors.textMuted, bg: 'rgba(100,116,139,0.1)', text: 'Past', label: 'Past' };
   if (daysAway === 0) return { color: Colors.roseText, bg: Colors.roseBg, text: 'Today!', label: 'Today' };

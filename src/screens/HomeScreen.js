@@ -1,14 +1,14 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StatusBar, RefreshControl, Animated,
+  StatusBar, RefreshControl, Animated, Easing,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { differenceInDays, parseISO, format, isToday, isTomorrow } from 'date-fns';
+import { parseISO, format, isToday, isTomorrow } from 'date-fns';
 import { getUpcomingEvents, getCourses } from '../database/db';
 import { useTheme } from '../constants/ThemeContext';
-import { Spacing, Radius, getEventTypeConfig, getUrgencyConfig } from '../constants/theme';
+import { Spacing, Radius, getEventTypeConfig, getUrgencyConfig, getDaysAwayFromDateStr } from '../constants/theme';
 import { Card, ProgressBar, ColorDot, EmptyState, ThemeToggle } from '../components/UI';
 
 function getGreeting() {
@@ -24,15 +24,23 @@ export default function HomeScreen({ navigation }) {
   const [courses, setCourses] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  // Stagger anims for event items
+  const itemAnims = useRef([...Array(10)].map(() => new Animated.Value(0))).current;
 
   const load = useCallback(async () => {
     const [evts, crss] = await Promise.all([getUpcomingEvents(30), getCourses()]);
     setEvents(evts);
     setCourses(crss);
-    Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+    fadeAnim.setValue(0);
+    itemAnims.forEach(a => a.setValue(0));
+    Animated.timing(fadeAnim, { toValue: 1, duration: 350, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    // Stagger items
+    Animated.stagger(55, itemAnims.slice(0, evts.length + 3).map(a =>
+      Animated.timing(a, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true })
+    )).start();
   }, []);
 
-  useFocusEffect(useCallback(() => { fadeAnim.setValue(0); load(); }, [load]));
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
   const today = format(new Date(), 'EEEE, MMM d');
@@ -60,10 +68,10 @@ export default function HomeScreen({ navigation }) {
 
           {/* Courses strip */}
           {courses.length > 0 && (
-            <View>
+            <Animated.View style={{ opacity: itemAnims[0], transform: [{ translateY: itemAnims[0].interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
               <Text style={{ fontSize: 10, fontWeight: '600', letterSpacing: 0.8, color: theme.textMuted, marginBottom: 10 }}>YOUR COURSES</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 4 }}>
-                {courses.map(c => (
+                {courses.map((c, ci) => (
                   <TouchableOpacity key={c.id}
                     style={{ width: 110, borderRadius: Radius.lg, borderWidth: 0.5, borderColor: theme.border, padding: 12, marginRight: 8, backgroundColor: theme.surface }}
                     onPress={() => navigation.navigate('CourseDetail', { courseId: c.id })}
@@ -81,23 +89,32 @@ export default function HomeScreen({ navigation }) {
                   <Text style={{ fontSize: 10, color: theme.textMuted, marginTop: 4 }}>Add</Text>
                 </TouchableOpacity>
               </ScrollView>
-            </View>
+            </Animated.View>
           )}
 
-          {/* Upcoming */}
-          <Text style={{ fontSize: 10, fontWeight: '600', letterSpacing: 0.8, color: theme.textMuted, marginTop: 20, marginBottom: 10 }}>UPCOMING</Text>
+          {/* Upcoming header */}
+          <Animated.View style={{ opacity: itemAnims[1], transform: [{ translateY: itemAnims[1].interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
+            <Text style={{ fontSize: 10, fontWeight: '600', letterSpacing: 0.8, color: theme.textMuted, marginTop: 20, marginBottom: 10 }}>UPCOMING</Text>
+          </Animated.View>
 
           {events.length === 0 ? (
-            <EmptyState icon="🎉" title="All clear!" subtitle="No upcoming events. Add courses and events to get started." action="Add a Course" onAction={() => navigation.navigate('CoursesTab', {})} />
+            <Animated.View style={{ opacity: itemAnims[2] }}>
+              <EmptyState icon="🎉" title="All clear!" subtitle="No upcoming events. Add courses and events to get started." action="Add a Course" onAction={() => navigation.navigate('CoursesTab', {})} />
+            </Animated.View>
           ) : (
             events.map((event, i) => {
-              const daysAway = differenceInDays(parseISO(event.date), new Date());
+              const daysAway = getDaysAwayFromDateStr(event.date);
               const urgency = getUrgencyConfig(daysAway);
               const typeConfig = getEventTypeConfig(event.type);
               const progress = event.topic_count > 0 ? (event.topics_done || 0) / event.topic_count : null;
+              const animIndex = Math.min(i + 2, itemAnims.length - 1);
 
               return (
-                <View key={event.id} style={{ flexDirection: 'row', gap: 10, marginBottom: 2 }}>
+                <Animated.View key={event.id} style={{
+                  flexDirection: 'row', gap: 10, marginBottom: 2,
+                  opacity: itemAnims[animIndex],
+                  transform: [{ translateY: itemAnims[animIndex].interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+                }}>
                   <View style={{ alignItems: 'center', paddingTop: 16, width: 16 }}>
                     <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: typeConfig.color }} />
                     {i < events.length - 1 && <View style={{ flex: 1, width: 1, backgroundColor: theme.border, marginTop: 4 }} />}
@@ -129,7 +146,7 @@ export default function HomeScreen({ navigation }) {
                       </View>
                     )}
                   </Card>
-                </View>
+                </Animated.View>
               );
             })
           )}
