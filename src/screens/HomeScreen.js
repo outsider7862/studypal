@@ -1,8 +1,10 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StatusBar, RefreshControl, Animated, Easing,
+  TextInput, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { parseISO, format, isToday, isTomorrow } from 'date-fns';
@@ -18,14 +20,30 @@ function getGreeting() {
   return 'Good evening';
 }
 
+const USER_NAME_KEY = 'studypal_user_name';
+
 export default function HomeScreen({ navigation }) {
   const { theme } = useTheme();
   const [events, setEvents] = useState([]);
   const [courses, setCourses] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [nameInput, setNameInput] = useState('');
   const fadeAnim = useRef(new Animated.Value(0)).current;
   // Stagger anims for event items
   const itemAnims = useRef([...Array(10)].map(() => new Animated.Value(0))).current;
+
+  // Load or prompt for user name on first launch
+  useEffect(() => {
+    AsyncStorage.getItem(USER_NAME_KEY).then(name => {
+      if (name && name.trim()) {
+        setUserName(name.trim());
+      } else {
+        setShowNameModal(true);
+      }
+    });
+  }, []);
 
   const load = useCallback(async () => {
     const [evts, crss] = await Promise.all([getUpcomingEvents(30), getCourses()]);
@@ -53,7 +71,7 @@ export default function HomeScreen({ navigation }) {
       <View style={{ paddingTop: 52, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, borderBottomWidth: 0.5, borderBottomColor: theme.border, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', backgroundColor: theme.bg }}>
         <View>
           <Text style={{ fontSize: 13, color: theme.textMuted }}>{getGreeting()},</Text>
-          <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>Akram 👋</Text>
+          <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>{userName || 'there'} 👋</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.skyBg, borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 0.5, borderColor: theme.skyBorder, alignSelf: 'flex-start', marginTop: 6 }}>
             <Ionicons name="calendar-outline" size={11} color={theme.skyText} />
             <Text style={{ fontSize: 11, fontWeight: '500', color: theme.skyText }}>{today}</Text>
@@ -152,6 +170,63 @@ export default function HomeScreen({ navigation }) {
           )}
         </Animated.View>
       </ScrollView>
+      {/* Name prompt modal — shown only on first launch */}
+      <Modal visible={showNameModal} transparent animationType="fade" statusBarTranslucent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg }}
+        >
+          <View style={{
+            backgroundColor: theme.surface, borderRadius: 24, padding: 28,
+            width: '100%', maxWidth: 360,
+            borderWidth: 0.5, borderColor: theme.border,
+            shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, elevation: 10,
+          }}>
+            <Text style={{ fontSize: 32, textAlign: 'center', marginBottom: 12 }}>👋</Text>
+            <Text style={{ fontSize: 20, fontWeight: '800', color: theme.text, textAlign: 'center', marginBottom: 6 }}>Welcome to StudyPal!</Text>
+            <Text style={{ fontSize: 13, color: theme.textMuted, textAlign: 'center', marginBottom: 24, lineHeight: 18 }}>What should we call you?</Text>
+            <TextInput
+              style={{
+                backgroundColor: theme.inputBg || theme.bg,
+                borderRadius: 12, borderWidth: 1, borderColor: theme.border2 || theme.border,
+                paddingHorizontal: 16, paddingVertical: 12,
+                fontSize: 15, color: theme.text, marginBottom: 16,
+              }}
+              placeholder="Your name…"
+              placeholderTextColor={theme.textMuted}
+              value={nameInput}
+              onChangeText={setNameInput}
+              autoFocus
+              maxLength={30}
+              returnKeyType="done"
+              onSubmitEditing={async () => {
+                const trimmed = nameInput.trim();
+                if (!trimmed) return;
+                await AsyncStorage.setItem(USER_NAME_KEY, trimmed);
+                setUserName(trimmed);
+                setShowNameModal(false);
+              }}
+            />
+            <TouchableOpacity
+              style={{
+                backgroundColor: nameInput.trim() ? theme.sky : theme.border,
+                borderRadius: 12, paddingVertical: 13, alignItems: 'center',
+              }}
+              activeOpacity={0.8}
+              disabled={!nameInput.trim()}
+              onPress={async () => {
+                const trimmed = nameInput.trim();
+                if (!trimmed) return;
+                await AsyncStorage.setItem(USER_NAME_KEY, trimmed);
+                setUserName(trimmed);
+                setShowNameModal(false);
+              }}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: nameInput.trim() ? '#fff' : theme.textMuted }}>Let's go!</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }

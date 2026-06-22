@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StatusBar, Animated, RefreshControl, Easing,
@@ -18,6 +19,10 @@ export default function AlertsScreen({ navigation }) {
   const [topicsByEvent, setTopicsByEvent] = useState({});
   const [refreshing, setRefreshing] = useState(false);
   const [alertsEnabled, setAlertsEnabled] = useState(false);
+
+  // Load persisted toggle state on every focus (handles Android remounting)
+  // We keep a ref to avoid a flash of 'false' on focus after it's been enabled
+  const alertsEnabledRef = useRef(false);
   const [testPressed, setTestPressed] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const bellAnim = useRef(new Animated.Value(0)).current;
@@ -39,7 +44,16 @@ export default function AlertsScreen({ navigation }) {
     Animated.timing(fadeAnim, { toValue: 1, duration: 350, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, []);
 
-  useFocusEffect(useCallback(() => { fadeAnim.setValue(0); load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    // Reload toggle state every time screen is focused
+    AsyncStorage.getItem('weekendAlertsEnabled').then(val => {
+      const enabled = val === 'true';
+      alertsEnabledRef.current = enabled;
+      setAlertsEnabled(enabled);
+    });
+    fadeAnim.setValue(0);
+    load();
+  }, [load]));
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   // Bell ring animation (loops while alerts enabled)
@@ -77,9 +91,14 @@ export default function AlertsScreen({ navigation }) {
   const handleToggleAlerts = async (val) => {
     if (val) {
       const granted = await requestNotificationPermissions();
-      if (granted) { await scheduleWeeklyAlert(); setAlertsEnabled(true); }
+      if (granted) {
+        await scheduleWeeklyAlert();
+        setAlertsEnabled(true);
+        await AsyncStorage.setItem('weekendAlertsEnabled', 'true');
+      }
     } else {
       setAlertsEnabled(false);
+      await AsyncStorage.setItem('weekendAlertsEnabled', 'false');
     }
   };
 
