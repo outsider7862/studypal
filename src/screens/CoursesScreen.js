@@ -6,10 +6,11 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { getCourses, insertCourse, deleteCourse, updateCourse } from '../database/db';
+import { getCourses, insertCourse, deleteCourse, updateCourse, getEvents } from '../database/db';
+import { cancelClassReminders, cancelEventReminders } from '../utils/notifications';
 import { useTheme } from '../constants/ThemeContext';
 import { Spacing, Radius } from '../constants/theme';
-import { Card, ColorDot, EmptyState, ProgressBar, ThemeToggle, SearchBar } from '../components/UI';
+import { Card, ColorDot, EmptyState, ProgressBar, ThemeToggle, SearchBar, SwipeRow } from '../components/UI';
 
 const COLORS = ['#38BDF8', '#7C3AED', '#F59E0B', '#10B981', '#F43F5E', '#06B6D4', '#8B5CF6', '#F97316', '#EC4899', '#84CC16'];
 const EMPTY_FORM = (color) => ({ name: '', code: '', instructor: '', credits: '3', color, semester: '' });
@@ -68,7 +69,16 @@ export default function CoursesScreen({ navigation }) {
   const confirmDelete = (course) => {
     Alert.alert('Delete Course', `Delete "${course.name}" and all its events?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => { await deleteCourse(course.id); await load(); } },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        // Clean up any scheduled notifications tied to this course before deleting.
+        try {
+          const evts = await getEvents(course.id);
+          for (const e of evts) await cancelEventReminders(e.id);
+          await cancelClassReminders(course.id);
+        } catch {}
+        await deleteCourse(course.id);
+        await load();
+      } },
     ]);
   };
 
@@ -127,7 +137,8 @@ export default function CoursesScreen({ navigation }) {
                 opacity: itemAnims[i] || 1,
                 transform: [{ translateY: (itemAnims[i] || new Animated.Value(1)).interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }],
               }}>
-                <Card onPress={() => navigation.navigate('CourseDetail', { courseId: course.id, courseName: course.name })} style={{ marginBottom: 10 }}>
+               <SwipeRow onDelete={() => confirmDelete(course)} gap={10}>
+                <Card onPress={() => navigation.navigate('CourseDetail', { courseId: course.id, courseName: course.name })} style={{ marginBottom: 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
                     {/* Color avatar */}
                     <View style={{ width: 44, height: 44, borderRadius: Radius.md, backgroundColor: course.color + '20', borderWidth: 1, borderColor: course.color + '40', alignItems: 'center', justifyContent: 'center' }}>
@@ -159,6 +170,7 @@ export default function CoursesScreen({ navigation }) {
                     </View>
                   </View>
                 </Card>
+               </SwipeRow>
               </Animated.View>
             ))
           )}

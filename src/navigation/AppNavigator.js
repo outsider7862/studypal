@@ -12,6 +12,7 @@ import CoursesScreen from '../screens/CoursesScreen';
 import CourseDetailScreen from '../screens/CourseDetailScreen';
 import EventDetailScreen from '../screens/EventDetailScreen';
 import CalendarScreen from '../screens/CalendarScreen';
+import TimetableScreen from '../screens/TimetableScreen';
 import AlertsScreen from '../screens/AlertsScreen';
 
 const Tab = createBottomTabNavigator();
@@ -19,7 +20,7 @@ const Stack = createNativeStackNavigator();
 const Root = createNativeStackNavigator();
 
 // Tab order — matches the Tab.Screen order below
-const TAB_ORDER = ['HomeTab', 'CalendarTab', 'CoursesTab', 'AlertsTab'];
+const TAB_ORDER = ['HomeTab', 'CalendarTab', 'TimetableTab', 'CoursesTab', 'AlertsTab'];
 
 // ── Tab stacks ────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,16 @@ function CalendarStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="CalendarMain" component={CalendarScreen} />
+      <Stack.Screen name="EventDetail" component={EventDetailScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function TimetableStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+      <Stack.Screen name="TimetableMain" component={TimetableScreen} />
+      <Stack.Screen name="CourseDetail" component={CourseDetailScreen} />
       <Stack.Screen name="EventDetail" component={EventDetailScreen} />
     </Stack.Navigator>
   );
@@ -83,10 +94,11 @@ function MainTabs() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 2 },
         tabBarIcon: ({ focused, color }) => {
           const icons = {
-            HomeTab:     focused ? 'home'          : 'home-outline',
-            CalendarTab: focused ? 'calendar'      : 'calendar-outline',
-            CoursesTab:  focused ? 'library'       : 'library-outline',
-            AlertsTab:   focused ? 'notifications' : 'notifications-outline',
+            HomeTab:      focused ? 'home'          : 'home-outline',
+            CalendarTab:  focused ? 'calendar'      : 'calendar-outline',
+            TimetableTab: focused ? 'grid'          : 'grid-outline',
+            CoursesTab:   focused ? 'library'       : 'library-outline',
+            AlertsTab:    focused ? 'notifications' : 'notifications-outline',
           };
           return <Ionicons name={icons[route.name]} size={22} color={color} />;
         },
@@ -96,10 +108,11 @@ function MainTabs() {
         tabPress: () => {},
       })}
     >
-      <Tab.Screen name="HomeTab"     options={{ title: 'Today' }}     component={MainStack} />
-      <Tab.Screen name="CalendarTab" options={{ title: 'Calendar' }}  component={CalendarStack} />
-      <Tab.Screen name="CoursesTab"  options={{ title: 'Courses' }}   component={CoursesStack} />
-      <Tab.Screen name="AlertsTab"   options={{ title: 'Alerts' }}    component={AlertsStack} />
+      <Tab.Screen name="HomeTab"      options={{ title: 'Today' }}     component={MainStack} />
+      <Tab.Screen name="CalendarTab"  options={{ title: 'Calendar' }}  component={CalendarStack} />
+      <Tab.Screen name="TimetableTab" options={{ title: 'Timetable' }} component={TimetableStack} />
+      <Tab.Screen name="CoursesTab"   options={{ title: 'Courses' }}   component={CoursesStack} />
+      <Tab.Screen name="AlertsTab"    options={{ title: 'Alerts' }}    component={AlertsStack} />
     </Tab.Navigator>
   );
 }

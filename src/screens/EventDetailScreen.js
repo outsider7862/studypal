@@ -11,7 +11,7 @@ import { getTopics, insertTopic, toggleTopic, deleteTopic, getEventWithCourse, u
 import { scheduleEventReminder } from '../utils/notifications';
 import { useTheme } from '../constants/ThemeContext';
 import { Spacing, Radius, getEventTypeConfig, getUrgencyConfig, getDaysAwayFromDateStr } from '../constants/theme';
-import { Card, ProgressBar, Checkbox, EmptyState, DateWheelModal } from '../components/UI';
+import { Card, ProgressBar, Checkbox, EmptyState, DateWheelModal, SwipeRow } from '../components/UI';
 
 const EVENT_TYPES = ['quiz', 'assignment', 'midterm', 'final', 'lab', 'presentation', 'other'];
 
@@ -55,8 +55,8 @@ export default function EventDetailScreen({ route, navigation }) {
     setSaving(true);
     try {
       await updateEvent(eventId, { ...editForm, weightage: parseFloat(editForm.weightage) || 0, completed: event.completed });
-      // Re-schedule reminders with updated date/time
-      await scheduleEventReminder({ ...editForm, id: eventId });
+      // Re-schedule reminders with updated date/time (scheduleEventReminder clears the old ones first)
+      await scheduleEventReminder({ ...editForm, id: eventId, course_name: event.course_name });
       setShowEditModal(false);
       await load();
     } finally { setSaving(false); }
@@ -164,7 +164,10 @@ export default function EventDetailScreen({ route, navigation }) {
             <EmptyState icon="📖" title="No topics yet" subtitle="Add topics you need to cover for this event." action="Add First Topic" onAction={() => setShowAddModal(true)} />
           ) : (
             topics.map(topic => (
-              <TopicRow key={topic.id} topic={topic} theme={theme} typeColor={typeConfig.color} onToggle={() => handleToggle(topic)} onDelete={() => confirmDeleteTopic(topic)} />
+              <SwipeRow key={topic.id} gap={6} completed={!!topic.completed}
+                onDelete={() => confirmDeleteTopic(topic)} onComplete={() => handleToggle(topic)}>
+                <TopicRow topic={topic} theme={theme} typeColor={typeConfig.color} onToggle={() => handleToggle(topic)} onDelete={() => confirmDeleteTopic(topic)} />
+              </SwipeRow>
             ))
           )}
         </Animated.View>
@@ -312,7 +315,7 @@ function TopicRow({ topic, theme, typeColor, onToggle, onDelete }) {
     onToggle();
   };
   return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }], marginBottom: 6 }}>
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.surface, borderRadius: Radius.lg, borderWidth: 0.5, borderColor: topic.completed ? theme.border : theme.border2, padding: 14, opacity: topic.completed ? 0.55 : 1 }}>
         <Checkbox checked={!!topic.completed} onToggle={handleToggle} color={typeColor} />
         <View style={{ flex: 1 }}>

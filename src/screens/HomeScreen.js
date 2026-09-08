@@ -71,7 +71,11 @@ export default function HomeScreen({ navigation }) {
       <View style={{ paddingTop: 52, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, borderBottomWidth: 0.5, borderBottomColor: theme.border, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', backgroundColor: theme.bg }}>
         <View>
           <Text style={{ fontSize: 13, color: theme.textMuted }}>{getGreeting()},</Text>
-          <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>{userName || 'there'} 👋</Text>
+          <TouchableOpacity activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            onPress={() => { setNameInput(userName); setShowNameModal(true); }}>
+            <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text, marginTop: 2 }}>{userName || 'there'} 👋</Text>
+            <Ionicons name="pencil" size={13} color={theme.textDim} style={{ marginTop: 4 }} />
+          </TouchableOpacity>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.skyBg, borderRadius: Radius.full, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 0.5, borderColor: theme.skyBorder, alignSelf: 'flex-start', marginTop: 6 }}>
             <Ionicons name="calendar-outline" size={11} color={theme.skyText} />
             <Text style={{ fontSize: 11, fontWeight: '500', color: theme.skyText }}>{today}</Text>

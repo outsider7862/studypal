@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StatusBar, Animated, Easing, Dimensions } from 'react-native';
+import { GestureDetector, Gesture, Directions } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -7,7 +8,7 @@ import {
   startOfWeek, endOfWeek, isSameDay, isToday, parseISO,
   addMonths, subMonths,
 } from 'date-fns';
-import { getUpcomingEvents } from '../database/db';
+import { getAllEventsWithCourse } from '../database/db';
 import { useTheme } from '../constants/ThemeContext';
 import { Spacing, Radius, getEventTypeConfig, getUrgencyConfig, getDaysAwayFromDateStr } from '../constants/theme';
 import { ThemeToggle } from '../components/UI';
@@ -28,7 +29,7 @@ export default function CalendarScreen({ navigation }) {
   const monthDir = useRef(0); // -1 prev, 1 next
 
   const load = useCallback(async () => {
-    const evts = await getUpcomingEvents(90);
+    const evts = await getAllEventsWithCourse();
     setEvents(evts);
     Animated.timing(fadeAnim, { toValue: 1, duration: 350, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, []);
@@ -69,6 +70,13 @@ export default function CalendarScreen({ navigation }) {
 
   const getEventsForDay = (day) => events.filter(e => isSameDay(parseISO(e.date), day));
   const selectedEvents = getEventsForDay(selectedDay);
+  const upcomingCount = events.filter(e => !e.completed && getDaysAwayFromDateStr(e.date) >= 0).length;
+
+  // Swipe left → next month, swipe right → previous month.
+  const monthSwipe = Gesture.Race(
+    Gesture.Fling().direction(Directions.LEFT).runOnJS(true).onEnd(() => changeMonth(1)),
+    Gesture.Fling().direction(Directions.RIGHT).runOnJS(true).onEnd(() => changeMonth(-1)),
+  );
 
   // Get today local
   const todayLocal = new Date();
@@ -82,7 +90,7 @@ export default function CalendarScreen({ navigation }) {
         <View>
           <Text style={{ fontSize: 22, fontWeight: '700', color: theme.text }}>Calendar</Text>
           <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 1 }}>
-            {events.length} upcoming event{events.length !== 1 ? 's' : ''}
+            {upcomingCount} upcoming event{upcomingCount !== 1 ? 's' : ''}
           </Text>
         </View>
         <ThemeToggle />
@@ -123,7 +131,8 @@ export default function CalendarScreen({ navigation }) {
             ))}
           </View>
 
-          {/* Calendar Grid */}
+          {/* Calendar Grid — swipe left/right to change month */}
+          <GestureDetector gesture={monthSwipe}>
           <Animated.View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: Spacing.lg, transform: [{ translateX: monthSlide }] }}>
             {days.map(day => {
               const isCurrentMonth = day.getMonth() === currentMonth.getMonth();
@@ -172,6 +181,7 @@ export default function CalendarScreen({ navigation }) {
               );
             })}
           </Animated.View>
+          </GestureDetector>
 
           {/* Today pill */}
           <TouchableOpacity

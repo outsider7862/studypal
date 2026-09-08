@@ -49,6 +49,19 @@ async function initSchema() {
       order_index INTEGER DEFAULT 0,
       FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
     );
+
+    -- Weekly recurring class times for a course (e.g. Mon 09:00–10:00, Room 3).
+    -- weekday: 0 = Sunday … 6 = Saturday (JS Date.getDay convention).
+    CREATE TABLE IF NOT EXISTS class_schedules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      course_id INTEGER NOT NULL,
+      weekday INTEGER NOT NULL,
+      start_time TEXT NOT NULL DEFAULT '09:00',
+      end_time TEXT NOT NULL DEFAULT '10:00',
+      room TEXT,
+      reminder INTEGER DEFAULT 1,
+      FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+    );
   `);
 }
 
@@ -210,4 +223,63 @@ export async function getEventWithCourse(eventId) {
      FROM events e JOIN courses c ON c.id = e.course_id WHERE e.id = ?`,
     [eventId]
   );
+}
+
+// Every event with course info — used by the calendar so past & completed
+// events (and events any distance in the future) all show up on their day.
+export async function getAllEventsWithCourse() {
+  const db = await getDB();
+  return await db.getAllAsync(`
+    SELECT e.*, c.name as course_name, c.color as course_color, c.code as course_code,
+      COUNT(t.id) as topic_count,
+      SUM(t.completed) as topics_done
+    FROM events e
+    JOIN courses c ON c.id = e.course_id
+    LEFT JOIN topics t ON t.event_id = e.id
+    GROUP BY e.id
+    ORDER BY e.date ASC, e.time ASC
+  `);
+}
+
+// ── Class schedules ──────────────────────────────────────────────────────────
+
+export async function getClassSchedules(courseId) {
+  const db = await getDB();
+  return await db.getAllAsync(
+    'SELECT * FROM class_schedules WHERE course_id = ? ORDER BY weekday ASC, start_time ASC',
+    [courseId]
+  );
+}
+
+// All class slots joined with their course, for the weekly timetable grid.
+export async function getAllClassSchedules() {
+  const db = await getDB();
+  return await db.getAllAsync(`
+    SELECT s.*, c.name as course_name, c.code as course_code, c.color as course_color
+    FROM class_schedules s
+    JOIN courses c ON c.id = s.course_id
+    ORDER BY s.weekday ASC, s.start_time ASC
+  `);
+}
+
+export async function insertClassSchedule({ courseId, weekday, startTime, endTime, room, reminder }) {
+  const db = await getDB();
+  const result = await db.runAsync(
+    'INSERT INTO class_schedules (course_id, weekday, start_time, end_time, room, reminder) VALUES (?, ?, ?, ?, ?, ?)',
+    [courseId, weekday, startTime || '09:00', endTime || '10:00', room || '', reminder === 0 ? 0 : 1]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function updateClassSchedule(id, { weekday, startTime, endTime, room, reminder }) {
+  const db = await getDB();
+  await db.runAsync(
+    'UPDATE class_schedules SET weekday=?, start_time=?, end_time=?, room=?, reminder=? WHERE id=?',
+    [weekday, startTime || '09:00', endTime || '10:00', room || '', reminder === 0 ? 0 : 1, id]
+  );
+}
+
+export async function deleteClassSchedule(id) {
+  const db = await getDB();
+  await db.runAsync('DELETE FROM class_schedules WHERE id = ?', [id]);
 }

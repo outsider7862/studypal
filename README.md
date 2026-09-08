@@ -10,12 +10,16 @@ A smart academic planner for university students. Add your courses, schedule qui
 
 - **Course Management** — Add courses with name, code, instructor, credits, and a unique color
 - **Event Tracking** — Schedule quizzes, assignments, midterms, finals, labs, and presentations
+- **Class Timetable** — Add weekly class times (day, start/end, room) per course; see them laid out in a weekly Timetable view with today highlighted
 - **Topic Checklists** — Break each event into study topics with estimated hours; check them off as you go
 - **Study Progress** — Visual progress bars showing how many topics you've covered per event
+- **Mark as Done** — Complete an event to move it out of your upcoming list (and stop its reminders)
 - **Urgency Indicators** — Color-coded badges: rose (≤3 days), amber (4–7 days), emerald (7+ days)
-- **Calendar View** — Monthly calendar with colored event dots; tap a day to see its events
+- **Calendar View** — Monthly calendar with colored event dots (past & upcoming); swipe left/right to change month; tap a day to see its events
+- **Gesture Controls** — Swipe a course, event, or topic to delete; swipe to mark done/undo; swipe the calendar to change months
 - **Weekend Alerts** — Automatic reminders every Friday at 7 PM listing what you need to study
 - **Event Reminders** — 24-hour and 2-hour reminders before each exam
+- **Class Reminders** — Optional weekly notification 15 minutes before each class
 - **Dark / Light Mode** — Toggle between Deep Ocean dark theme and a clean light theme
 - **Offline First** — Everything stored locally with SQLite, no internet required
 
@@ -26,9 +30,10 @@ A smart academic planner for university students. Add your courses, schedule qui
 | Screen | Description |
 |---|---|
 | Today | Upcoming events timeline + course strip |
-| Calendar | Monthly grid with event dots and day detail |
-| Courses | Course list with progress; add/delete courses |
-| Course Detail | Events for a course; add/delete events |
+| Calendar | Monthly grid with event dots and day detail; swipe to change month |
+| Timetable | Weekly class schedule — today's classes + a full-week grid |
+| Courses | Course list with progress; add/delete courses (swipe to delete) |
+| Course Detail | Class times + events for a course; add/edit/delete both |
 | Event Detail | Topic checklist with study progress |
 | Alerts | Weekend study reminders grouped by urgency |
 
@@ -133,9 +138,10 @@ studypal/
 ## Database Schema
 
 ```sql
-courses  (id, name, code, instructor, credits, color, semester)
-events   (id, course_id, title, type, date, time, venue, weightage, completed)
-topics   (id, event_id, title, estimated_hours, completed, order_index)
+courses          (id, name, code, instructor, credits, color, semester)
+events           (id, course_id, title, type, date, time, venue, weightage, notes, completed)
+topics           (id, event_id, title, estimated_hours, completed, order_index)
+class_schedules  (id, course_id, weekday, start_time, end_time, room, reminder)
 ```
 
 All data is stored locally in `studypal.db` via Expo SQLite.

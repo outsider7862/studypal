@@ -4,9 +4,16 @@ import { Platform } from 'react-native';
 import { getWeekendAlertEvents, getTopicsForAlerts } from '../database/db';
 import { differenceInDays, parseISO } from 'date-fns';
 
+// SDK 56: every schedulable trigger MUST carry a `type` (SchedulableTriggerInputTypes)
+// or a `channelId`. Legacy shapes like `{ date }` or `{ weekday, hour, minute, repeats }`
+// throw inside scheduleNotificationAsync, which is why reminders silently never fired.
+const T = Notifications.SchedulableTriggerInputTypes;
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    // `shouldShowAlert` is deprecated in SDK 56 — banner + list are the replacements.
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -27,10 +34,15 @@ function emojiFor(type) {
   return TYPE_EMOJI[type] || '📌';
 }
 
-// ── Android notification channel ─────────────────────────────────────────────
+// Android channels are addressed from inside the trigger in SDK 56.
+const CH_REMINDERS = 'studypal-reminders';
+const CH_ALERTS = 'studypal-alerts';
+const CH_CLASSES = 'studypal-classes';
+
+// ── Android notification channels ────────────────────────────────────────────
 async function ensureAndroidChannel() {
   if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync('studypal-reminders', {
+  await Notifications.setNotificationChannelAsync(CH_REMINDERS, {
     name: 'Study Reminders',
     importance: Notifications.AndroidImportance.HIGH,
     sound: 'default',
@@ -38,11 +50,19 @@ async function ensureAndroidChannel() {
     lightColor: '#38BDF8',
     description: 'Event reminders and study alerts from StudyPal',
   });
-  await Notifications.setNotificationChannelAsync('studypal-alerts', {
+  await Notifications.setNotificationChannelAsync(CH_ALERTS, {
     name: 'Weekend Study Alerts',
     importance: Notifications.AndroidImportance.DEFAULT,
     sound: 'default',
     description: 'Weekly study recap sent every Friday evening',
+  });
+  await Notifications.setNotificationChannelAsync(CH_CLASSES, {
+    name: 'Class Reminders',
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: 'default',
+    vibrationPattern: [0, 200, 150, 200],
+    lightColor: '#38BDF8',
+    description: 'Reminders shortly before each scheduled class',
   });
 }
 
@@ -63,15 +83,37 @@ export async function requestNotificationPermissions() {
   return false;
 }
 
-export async function scheduleWeeklyAlert() {
+// Trigger helper: a channel-aware DATE trigger (channelId lives inside the trigger now).
+function dateTrigger(date) {
+  return Platform.OS === 'android'
+    ? { type: T.DATE, date, channelId: CH_REMINDERS }
+    : { type: T.DATE, date };
+}
+
+// A weekly trigger. Expo weekdays are 1–7 with 1 = Sunday.
+function weeklyTrigger(weekday, hour, minute, channelId) {
+  const base = { type: T.WEEKLY, weekday, hour, minute };
+  return Platform.OS === 'android' && channelId ? { ...base, channelId } : base;
+}
+
+// Cancel every scheduled notification whose data matches a predicate.
+async function cancelWhere(predicate) {
   try {
-    // Cancel existing weekly alerts
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     for (const n of scheduled) {
-      if (n.content.data?.type === 'weekly_alert') {
+      if (predicate(n.content?.data || {})) {
         await Notifications.cancelScheduledNotificationAsync(n.identifier);
       }
     }
+  } catch (err) {
+    console.warn('Could not cancel notifications:', err);
+  }
+}
+
+export async function scheduleWeeklyAlert() {
+  try {
+    // Cancel existing weekly alerts so we never stack duplicates.
+    await cancelWhere(d => d?.type === 'weekly_alert');
 
     // Grab upcoming events to surface a count in the body
     const events = await getWeekendAlertEvents();
@@ -89,14 +131,8 @@ export async function scheduleWeeklyAlert() {
         body,
         data: { type: 'weekly_alert' },
         sound: true,
-        ...(Platform.OS === 'android' && { channelId: 'studypal-alerts' }),
       },
-      trigger: {
-        weekday: 6, // Friday
-        hour: 19,
-        minute: 0,
-        repeats: true,
-      },
+      trigger: weeklyTrigger(6, 19, 0, CH_ALERTS), // Friday (6) at 19:00
     });
 
     return true;
@@ -106,8 +142,21 @@ export async function scheduleWeeklyAlert() {
   }
 }
 
+export async function cancelWeeklyAlert() {
+  await cancelWhere(d => d?.type === 'weekly_alert');
+}
+
+// Remove any scheduled reminders tied to a specific event (used on edit + delete).
+export async function cancelEventReminders(eventId) {
+  await cancelWhere(d => d?.type === 'event_reminder' && String(d?.eventId) === String(eventId));
+}
+
 export async function scheduleEventReminder(event) {
   try {
+    // Always clear this event's previous reminders first — editing an event used
+    // to stack a second copy on top of the old ones.
+    if (event.id != null) await cancelEventReminders(event.id);
+
     const eventDate = parseISO(event.date + 'T' + (event.time || '09:00'));
     const now = new Date();
     const emoji = emojiFor(event.type);
@@ -126,9 +175,8 @@ export async function scheduleEventReminder(event) {
           body: `Your ${typeLabel} is tomorrow. Make sure you've covered all your topics!`,
           data: { type: 'event_reminder', eventId: event.id },
           sound: true,
-          ...(Platform.OS === 'android' && { channelId: 'studypal-reminders' }),
         },
-        trigger: { date: dayBefore },
+        trigger: dateTrigger(dayBefore),
       });
     }
 
@@ -141,13 +189,54 @@ export async function scheduleEventReminder(event) {
           body: `Your ${typeLabel} starts soon. You've got this!${venueStr}`,
           data: { type: 'event_reminder', eventId: event.id },
           sound: true,
-          ...(Platform.OS === 'android' && { channelId: 'studypal-reminders' }),
         },
-        trigger: { date: twoHoursBefore },
+        trigger: dateTrigger(twoHoursBefore),
       });
     }
   } catch (err) {
     console.warn('Could not schedule event reminder:', err);
+  }
+}
+
+// ── Class reminders ──────────────────────────────────────────────────────────
+// Weekly recurring nudge ~15 min before each class slot. `slots` is an array of
+// { id, weekday (0=Sun..6=Sat), start_time 'HH:MM', room }.
+const CLASS_LEAD_MINUTES = 15;
+
+export async function cancelClassReminders(courseId) {
+  await cancelWhere(d => d?.type === 'class_reminder' && String(d?.courseId) === String(courseId));
+}
+
+export async function scheduleClassReminders(course, slots) {
+  try {
+    await cancelClassReminders(course.id);
+    if (!Array.isArray(slots)) return;
+
+    for (const slot of slots) {
+      if (slot.reminder === 0) continue;
+      const [h, m] = String(slot.start_time || '09:00').split(':').map(Number);
+      if (Number.isNaN(h) || Number.isNaN(m)) continue;
+
+      // Subtract the lead time, wrapping across midnight / week boundaries.
+      let total = h * 60 + m - CLASS_LEAD_MINUTES;
+      let weekday = slot.weekday; // 0=Sun..6=Sat
+      if (total < 0) { total += 24 * 60; weekday = (weekday + 6) % 7; }
+      const rHour = Math.floor(total / 60);
+      const rMin = total % 60;
+
+      const roomStr = slot.room ? ` · ${slot.room}` : '';
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `📚 ${course.name} starts soon`,
+          body: `Class begins at ${slot.start_time}${roomStr}. Time to head over!`,
+          data: { type: 'class_reminder', courseId: course.id },
+          sound: true,
+        },
+        trigger: weeklyTrigger(weekday + 1, rHour, rMin, CH_CLASSES),
+      });
+    }
+  } catch (err) {
+    console.warn('Could not schedule class reminders:', err);
   }
 }
 
@@ -156,7 +245,19 @@ export async function sendImmediateStudyAlert() {
     const events = await getWeekendAlertEvents();
     const topics = await getTopicsForAlerts();
 
-    if (!events.length) return;
+    if (!events.length) {
+      // Still give feedback so the "Test" button never feels broken.
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '📚 StudyPal',
+          body: "You're all caught up — no events in the next 7 days. 🎉",
+          data: { type: 'study_alert' },
+          sound: true,
+        },
+        trigger: Platform.OS === 'android' ? { channelId: CH_REMINDERS } : null,
+      });
+      return;
+    }
 
     // Group topics by event
     const topicsByEvent = {};
@@ -176,7 +277,7 @@ export async function sendImmediateStudyAlert() {
 
       // Urgency line
       let urgencyLine;
-      if (days === 0)      urgencyLine = 'Today!';
+      if (days <= 0)       urgencyLine = 'Today!';
       else if (days === 1) urgencyLine = 'Tomorrow!';
       else                 urgencyLine = `In ${days} day${days > 1 ? 's' : ''}`;
 
@@ -191,9 +292,8 @@ export async function sendImmediateStudyAlert() {
           body: `${event.course_name} ${typeLabel} · ${topicLine}`,
           data: { type: 'study_alert', eventId: event.id },
           sound: true,
-          ...(Platform.OS === 'android' && { channelId: 'studypal-reminders' }),
         },
-        trigger: null, // immediate
+        trigger: Platform.OS === 'android' ? { channelId: CH_REMINDERS } : null, // immediate
       });
     }
   } catch (err) {

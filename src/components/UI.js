@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, ActivityIndicator,
   Animated, Easing, ScrollView, TextInput, Platform,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { Radius, Spacing, Typography } from '../constants/theme';
 import { useTheme } from '../constants/ThemeContext';
@@ -197,9 +198,77 @@ export function Input({ label, value, onChangeText, placeholder, multiline, keyb
   return (
     <View style={{ marginBottom: 14 }}>
       {label && <Text style={{ fontSize: 12, fontWeight: '500', color: theme.textSec, marginBottom: 6 }}>{label}</Text>}
-      <View style={[{ backgroundColor: theme.inputBg, borderRadius: Radius.md, borderWidth: 1, borderColor: theme.border2, paddingHorizontal: 12, paddingVertical: 10 }, style]}>
-        <Text style={{ fontSize: 14, color: theme.text }} numberOfLines={multiline ? undefined : 1}></Text>
+      <TextInput
+        style={[{
+          backgroundColor: theme.inputBg, borderRadius: Radius.md, borderWidth: 1,
+          borderColor: theme.border2, paddingHorizontal: 12, paddingVertical: 10,
+          fontSize: 14, color: theme.text,
+        }, multiline && { minHeight: 80, textAlignVertical: 'top' }, style]}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={theme.textMuted}
+        multiline={multiline}
+        keyboardType={keyboardType}
+      />
+    </View>
+  );
+}
+
+// ── SwipeRow — swipe-to-delete (and optional swipe-to-complete) wrapper ────────
+export function SwipeRow({ children, onDelete, onComplete, completed, gap = 10, style }) {
+  const { theme } = useTheme();
+  const ref = useRef(null);
+  const close = () => ref.current?.close();
+
+  const renderRightActions = (progress, dragX) => {
+    const scale = dragX.interpolate({ inputRange: [-80, -20, 0], outputRange: [1, 0.7, 0.4], extrapolate: 'clamp' });
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'stretch', paddingLeft: 8 }}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => { close(); onDelete?.(); }}
+          style={{ width: 76, borderRadius: Radius.lg, backgroundColor: theme.rose, alignItems: 'center', justifyContent: 'center' }}>
+          <Animated.View style={{ transform: [{ scale }], alignItems: 'center' }}>
+            <Ionicons name="trash" size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 3 }}>Delete</Text>
+          </Animated.View>
+        </TouchableOpacity>
       </View>
+    );
+  };
+
+  const renderLeftActions = (progress, dragX) => {
+    const scale = dragX.interpolate({ inputRange: [0, 20, 80], outputRange: [0.4, 0.7, 1], extrapolate: 'clamp' });
+    const color = completed ? theme.amber : theme.emerald;
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'stretch', paddingRight: 8 }}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => { close(); onComplete?.(); }}
+          style={{ width: 76, borderRadius: Radius.lg, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
+          <Animated.View style={{ transform: [{ scale }], alignItems: 'center' }}>
+            <Ionicons name={completed ? 'arrow-undo' : 'checkmark-done'} size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 3 }}>{completed ? 'Undo' : 'Done'}</Text>
+          </Animated.View>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  return (
+    <View style={[{ marginBottom: gap }, style]}>
+      <Swipeable
+        ref={ref}
+        friction={2}
+        rightThreshold={40}
+        leftThreshold={40}
+        overshootRight={false}
+        overshootLeft={false}
+        renderRightActions={onDelete ? renderRightActions : undefined}
+        renderLeftActions={onComplete ? renderLeftActions : undefined}>
+        {children}
+      </Swipeable>
     </View>
   );
 }
@@ -504,6 +573,38 @@ export function DateWheelModal({ visible, initialDate, initialTime, onConfirm, o
           <WheelPicker items={hours}   selectedIndex={hourIdx}   onIndexChange={setHourIdx}   width={80} accentColor={theme.sky} />
           <Text style={{ fontSize: 22, fontWeight: '700', color: theme.textMuted, marginBottom: 4 }}>:</Text>
           <WheelPicker items={minutes} selectedIndex={minuteIdx} onIndexChange={setMinuteIdx} width={80} accentColor={theme.sky} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ── TimeWheelModal — hour + minute wheel picker (returns 'HH:MM') ─────────────
+export function TimeWheelModal({ visible, initialTime, title = 'Pick Time', onConfirm, onDismiss }) {
+  const { theme } = useTheme();
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+  const parsed = initialTime ? initialTime.split(':') : ['09', '00'];
+  const [hourIdx, setHourIdx] = useState(parseInt(parsed[0]) || 9);
+  const [minuteIdx, setMinuteIdx] = useState(parseInt(parsed[1]) || 0);
+
+  if (!visible) return null;
+
+  return (
+    <View style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'flex-end', zIndex: 999 }}>
+      <View style={{ backgroundColor: theme.bg1, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: Spacing.lg, paddingBottom: 36, width: '100%' }}>
+        <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: theme.border2, alignSelf: 'center', marginBottom: 16 }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <TouchableOpacity onPress={onDismiss}><Text style={{ color: theme.textMuted, fontSize: 15 }}>Cancel</Text></TouchableOpacity>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: theme.text }}>{title}</Text>
+          <TouchableOpacity onPress={() => onConfirm(`${hours[hourIdx]}:${minutes[minuteIdx]}`)}>
+            <Text style={{ color: theme.sky, fontSize: 15, fontWeight: '700' }}>Done</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
+          <WheelPicker items={hours}   selectedIndex={hourIdx}   onIndexChange={setHourIdx}   width={90} accentColor={theme.sky} />
+          <Text style={{ fontSize: 22, fontWeight: '700', color: theme.textMuted, marginBottom: 4 }}>:</Text>
+          <WheelPicker items={minutes} selectedIndex={minuteIdx} onIndexChange={setMinuteIdx} width={90} accentColor={theme.sky} />
         </View>
       </View>
     </View>
